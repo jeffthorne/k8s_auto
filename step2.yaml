@@ -1,0 +1,43 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: aquadb-pv
+  labels:
+    app: aqua-security
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 30Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Recycle
+  hostPath:
+    path: "/var/lib/aquadata/"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: aquadb-pvc
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 30Gi
+  volumeName: aquadb-pv
+  selector:
+    matchLabels:
+      app: aqua-security
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aqua-web-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 4Gi

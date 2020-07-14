@@ -1,0 +1,229 @@
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: aqua-discovery-cr
+  labels:
+    rbac.example.com/aggregate-to-monitoring: "true"
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "services", "endpoints", "pods", "deployments", "namespaces","componentstatuses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["imagestreams", "imagestreams/layers"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aqua-discovery-crb
+roleRef:
+  name: aqua-discovery-cr
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+subjects:
+  - kind: ServiceAccount
+    name: aqua-sa
+    namespace: aqua
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: aqua-web
+  name: aqua-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aqua-web
+  template:
+    metadata:
+      labels:
+        app: aqua-web
+      name: aqua-web
+    spec:
+      # To run Aqua components as a non-privileged account, comment out
+      # spec.template.spec.containers.securityContext field as applicable,
+      # and uncomment spec.template.spec.securityConext field:
+      #securityContext:
+      #  runAsUser: 11431
+      #  runAsGroup: 11433
+      #  fsGroup: 11433
+      serviceAccount: aqua-sa
+      restartPolicy: Always
+      containers:
+      - env:
+        - name: SCALOCK_DBUSER
+          value: postgres
+        - name: SCALOCK_DBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: aqua-db
+        - name: SCALOCK_DBNAME
+          value: scalock
+        - name: SCALOCK_DBHOST
+          value: aqua-db
+        - name: SCALOCK_DBPORT
+          value: "5432"
+        - name: SCALOCK_AUDIT_DBUSER
+          value: postgres
+        - name: SCALOCK_AUDIT_DBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: aqua-db
+        - name: SCALOCK_AUDIT_DBNAME
+          value: slk_audit
+        - name: SCALOCK_AUDIT_DBHOST
+          value: aqua-db
+        - name: SCALOCK_AUDIT_DBPORT
+          value: "5432"
+        # To use SSL for communication between Aqua & Kubernetes, uncomment env variables
+        # SEDOCK_CERT_PEM & SEDOCK_KEY_PEM in deployment.spec.template.spec.containers
+        # field as applicable, comment same if incase not used and it was uncommented
+        #- name: SEDOCK_CERT_PEM
+        #  value: "/opt/certs/cert.pem"
+        #- name: SEDOCK_KEY_PEM
+        #  value: "/opt/certs/key.pem"
+        image: registry.aquasec.com/console:5.0.20181
+        imagePullPolicy: IfNotPresent
+        # To run Aqua components as a privileged account, uncomment
+        # spec.template.spec.containers.securityContext field as applicable,
+        # and comment out spec.template.spec.securityContext field:
+        securityContext:
+          privileged: true
+        name: aqua-web
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        - containerPort: 8443
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /opt/aquasec/raw-scan-results
+          name: aqua-web-pvc
+        - mountPath: /var/run/docker.sock
+          name: docker-socket-mount
+        # To use SSL for communication between Aqua & Kubernetes, uncomment
+        # deployment.spec.template.spec.volumeMounts[name: aqua-key] field as applicable,
+        # comment same if incase not used and it was uncommented
+        #- name: aqua-key
+        #  mountPath: "/opt/certs"
+        #  readOnly: true
+      volumes:
+      - hostPath:
+          path: /var/run/docker.sock
+        name: docker-socket-mount
+      - name: aqua-web-pvc
+        # To use persistentVolumeClaim to store DB content, comment out
+        # deployment.spec.template.spec.volumes.hostPath field as applicable,
+        # uncomment deployment.spec.template.spec.volumes.persistentVolumeClaim field
+        persistentVolumeClaim:
+          claimName: aqua-web-pvc
+        # To use hostPath to store DB content, comment out
+        # deployment.spec.template.spec.volumes.persistentVolumeClaim field as applicable,
+        # uncomment deployment.spec.template.spec.volumes.hostPath field
+        #hostPath:
+        #  path: /var/lib/aqua/raw-scan-results
+      # To use SSL for communication between Aqua & Kubernetes, uncomment
+      # deployment.spec.template.spec.volumes[name: aqua-key] field as applicable,
+      # comment same if incase not used and it was uncommented
+      #- name: aqua-key
+      #  secret:
+      #    secretName: aqua-ssl-key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: aqua-gateway
+  name: aqua-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aqua-gateway
+  template:
+    metadata:
+      labels:
+        app: aqua-gateway
+      name: aqua-gateway
+    spec:
+      # To run Aqua components as a non-privileged account, comment out
+      # spec.template.spec.containers.securityContext field as applicable,
+      # and uncomment spec.template.spec.securityConext field:
+      #securityContext:
+      #  runAsUser: 11431
+      #  runAsGroup: 11433
+      #  fsGroup: 11433
+      serviceAccount: aqua-sa
+      restartPolicy: Always
+      containers:
+      - name: aqua-gateway
+        image: registry.aquasec.com/gateway:5.0.20181
+        imagePullPolicy: IfNotPresent
+        # To run Aqua components as a privileged account, uncomment
+        # spec.template.spec.containers.securityContext field as applicable,
+        # and comment out spec.template.spec.securityContext field:
+        securityContext:
+          privileged: true
+        env:
+        - name: AQUA_CONSOLE_SECURE_ADDRESS
+          value: aqua-web:443
+        - name: SCALOCK_GATEWAY_PUBLIC_IP
+          value: aqua-gateway
+        - name: SCALOCK_DBUSER
+          value: postgres
+        - name: SCALOCK_DBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: aqua-db
+        - name: SCALOCK_DBNAME
+          value: scalock
+        - name: SCALOCK_DBHOST
+          value: aqua-db
+        - name: SCALOCK_DBPORT
+          value: "5432"
+        - name: SCALOCK_AUDIT_DBUSER
+          value: postgres
+        - name: SCALOCK_AUDIT_DBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: aqua-db
+        - name: SCALOCK_AUDIT_DBNAME
+          value: slk_audit
+        - name: SCALOCK_AUDIT_DBHOST
+          value: aqua-db
+        - name: SCALOCK_AUDIT_DBPORT
+          value: "5432"
+        ports:
+        - containerPort: 3622
+          protocol: TCP
+        - containerPort: 8443
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aqua-gateway
+  labels:
+    app: aqua-gateway
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8443
+      protocol: TCP
+      targetPort: 8443
+      name: aqua-gateway-ssl
+    - port: 3622
+      protocol: TCP
+      targetPort: 3622
+      name: aqua-gateway
+  selector:
+    app: aqua-gateway
